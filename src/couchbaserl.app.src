@@ -1,0 +1,14 @@
+{application, couchbaserl, [
+	{description, ""},
+	{vsn, "0.1.0"},
+	{id, "git"},
+	{modules, []},
+	{registered, []},
+	{applications, [
+		vbucket,
+		kernel,
+		stdlib
+	]},
+	{mod, {couchbaserl_app, []}},
+	{env, []}
+]}.
