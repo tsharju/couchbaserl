@@ -10,7 +10,6 @@ start_sasl(Socket) ->
   Response = couchbaserl_conn:send_and_receive(Socket, Request),
   decode_mechanisms(Response#response.body).
 
-
 -spec sasl_cram_md5_auth(Socket :: gen_tcp:socket(), Username :: string(), Password :: string) -> ok | {error, atom()}.
 sasl_cram_md5_auth(Socket, Username, Password) ->
   Request = #request{opcode = ?OP_SASL_AUTHENTICATE, key = <<"CRAM-MD5">>},
