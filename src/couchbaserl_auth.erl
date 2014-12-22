@@ -1,39 +1,18 @@
 -module(couchbaserl_auth).
 
--export([start_sasl/1, sasl_cram_md5_auth/3]).
+-export([sasl_cram_md5/3, decode_mechanisms/1]).
 
 -include("couchbaserl.hrl").
 
--spec start_sasl(Socket :: gen_tcp:socket()) -> [atom()].
-start_sasl(Socket) ->
-    Request = #request{opcode=?OP_SASL_LIST_MECHANISMS},
-    Response = couchbaserl_conn:send_and_receive(Socket, Request),
-    decode_mechanisms(Response#response.body).
-
--spec sasl_cram_md5_auth(Socket :: gen_tcp:socket(), Username :: string(), Password :: string) -> ok | {error, atom()}.
-sasl_cram_md5_auth(Socket, Username, Password) ->
-    Request = #request{opcode = ?OP_SASL_AUTHENTICATE, key = <<"CRAM-MD5">>},
-    Response = couchbaserl_conn:send_and_receive(Socket, Request),
-
-    Challenge = Response#response.body,
+-spec sasl_cram_md5(Challenge :: binary(), BucketName :: string(),
+		    Password :: string()) -> ok | {error, any()}.
+sasl_cram_md5(Challenge, BucketName, Password) ->
     Digest = crypto:hmac(md5, Password, Challenge),
     HexDigest = hex(Digest),
 
-    Result = list_to_binary(Username ++ " " ++ HexDigest),
-    AuthRequest = #request{opcode = ?OP_SASL_STEP, key = <<"CRAM-MD5">>, body = Result},
-    AuthResponse = couchbaserl_conn:send_and_receive(Socket, AuthRequest),
+    list_to_binary(BucketName ++ " " ++ HexDigest).
 
-    case AuthResponse#response.body of
-	<<"Authenticated">> ->
-	    ok;
-	<<"Auth failure">> ->
-	    {error, auth_failure};
-	_ ->
-	    {error, auth_error}
-    end.
-
-%% Private API
-
+-spec decode_mechanisms(Data :: binary()) -> [atom()].
 decode_mechanisms(Data) ->
     S = binary_to_list(Data),
     lists:map(
@@ -42,6 +21,8 @@ decode_mechanisms(Data) ->
       end,
       string:tokens(string:to_upper(S), " ")
      ).
+
+%% Private API
 
 hex(Data) ->
     lists:flatten(
