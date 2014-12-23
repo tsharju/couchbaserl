@@ -26,10 +26,10 @@ start_link() ->
 %% gen_server.
 
 init([]) ->
-    Host = "localhost",
-    Port = 8091,
-    Bucket = "dev",
-    Password = "password",
+    Host = application:get_env(couchbaserl, host, "localhost"),
+    Port = application:get_env(couchbaserl, port, 8091),
+    Bucket = application:get_env(couchbaserl, bucket, "default"),
+    Password = application:get_env(couchbaserl, password, ""),
     
     %% start the cluster config stream
     Url = lists:flatten(io_lib:format(?BASE_URL, [Host, Port, Bucket])),
