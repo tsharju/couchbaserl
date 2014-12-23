@@ -53,7 +53,6 @@ handle_call({authenticate, BucketName, Password}, _From, #state{socket=Socket} =
 					   key="CRAM-MD5", body=AuthResponse}),
 	    case Result#rsp.status of
 		0 ->
-		    ok = init_cluster_config(Socket),
 		    {reply, ok, State};
 		_ ->
 		    {reply, {error, binary_to_list(Result#rsp.body)}, State}
@@ -91,10 +90,6 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Private API
-
-init_cluster_config(Socket) ->
-    ConfigResponse = send_and_receive(Socket, #req{opcode=?OP_GET_CLUSTER_CONFIG}),
-    vbucket:config_parse(binary_to_list(ConfigResponse#rsp.body)).
 
 send_and_receive(Socket, Request) ->
     send_request(Socket, Request),
