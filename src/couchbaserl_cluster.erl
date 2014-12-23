@@ -3,6 +3,7 @@
 
 %% API.
 -export([start_link/0]).
+-export([get_connection/1]).
 
 %% gen_server.
 -export([init/1]).
@@ -14,14 +15,17 @@
 
 -define(BASE_URL, "http://~s:~w/pools/default/bucketsStreaming/~s").
 
--record(state, {host, port, bucket, http_conn,
+-record(state, {host, port, bucket, password, http_conn,
 		partial_boundary= <<"">>, partial_data= <<"">>}).
 
 %% API.
 
 -spec start_link() -> {ok, pid()}.
 start_link() ->
-    gen_server:start_link(?MODULE, [], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+get_connection(Server) ->
+    gen_server:call(?MODULE, {get_connection, Server}).
 
 %% gen_server.
 
@@ -30,16 +34,28 @@ init([]) ->
     Port = application:get_env(couchbaserl, port, 8091),
     Bucket = application:get_env(couchbaserl, bucket, "default"),
     Password = application:get_env(couchbaserl, password, ""),
-    
+
     %% start the cluster config stream
     Url = lists:flatten(io_lib:format(?BASE_URL, [Host, Port, Bucket])),
     Auth = "Basic " ++ base64:encode_to_string(Bucket ++ ":" ++ Password),
     Headers = [{"Authorization", Auth}],
     Opts = [{stream, self}, {sync, false}],
     {ok, HttpConn} = httpc:request(get, {Url, Headers}, [], Opts),
+    
+    {ok, #state{host=Host, port=Port, bucket=Bucket,
+		password=Password, http_conn=HttpConn}}.
 
-    {ok, #state{host=Host, port=Port, bucket=Bucket, http_conn=HttpConn}}.
-
+handle_call({get_connection, Server}, _From, #state{bucket=B, password=P} = State) ->
+    case gproc:lookup_local_name({conn, Server}) of
+	undefined ->
+	    %% no connection to the server exists, we need to make one
+	    {ok, Pid} = supervisor:start_child(couchbaserl_conn_sup, [Server]),
+	    %% authenticate the connection
+	    ok = gen_server:call(Pid, {authenticate, B, P}),
+	    {reply, Pid, State};
+	Conn ->
+	    {reply, Conn, State}
+    end;
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
 

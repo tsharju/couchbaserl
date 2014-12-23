@@ -8,11 +8,15 @@
   {registered, []},
   {applications,
    [
+    gproc,
     vbucket,
     inets,
     kernel,
     stdlib
    ]},
   {mod, {couchbaserl_app, []}},
-  {env, []}
+  {env, [
+	 {bucket, "dev"},
+	 {password, "password"}
+	]}
  ]}.

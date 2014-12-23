@@ -4,7 +4,7 @@
 -include("couchbaserl.hrl").
 
 %% API.
--export([start_link/0]).
+-export([start_link/1]).
 
 %% gen_server.
 -export([init/1]).
@@ -20,14 +20,18 @@
 
 %% API.
 
--spec start_link() -> {ok, pid()}.
-start_link() ->
-    gen_server:start_link(?MODULE, [{host, '127.0.0.1'}, {port, 11210}], []).
+-spec start_link({string(), integer()}) -> {ok, pid()}.
+start_link(Args) ->
+    gen_server:start_link(?MODULE, Args, []).
 
 %% gen_server.
-init([{host, Host}, {port, Port}]) ->
+init({Host, Port}) ->
     Opts = [binary, {nodelay, true}, {active, false}, {packet, 0}],
     {ok, Socket} = gen_tcp:connect(Host, Port, Opts),
+
+    %% register this process to gproc
+    true = gproc:add_local_name({conn, {Host, Port}}),
+
     {ok, #state{socket=Socket}}.
 
 handle_call({authenticate, BucketName, Password}, _From, #state{socket=Socket} = State) ->
@@ -57,15 +61,14 @@ handle_call({authenticate, BucketName, Password}, _From, #state{socket=Socket} =
 	false ->
 	    {reply, {error, not_implemented}, State}
     end;
-handle_call({get, Key}, _From, #state{socket=Socket} = State) ->
-    {VbucketId, _Server} = vbucket:map(Key),
+handle_call({get, Key, VbucketId}, _From, #state{socket=Socket} = State) ->
     Request = #req{opcode=?OP_GET, key=Key, vbucket=VbucketId},
     Response = send_and_receive(Socket, Request),
     {reply, Response, State};
-handle_call({set, Key, Value, Expires}, _From, #state{socket=Socket} = State) ->
+handle_call({set, Key, Value, Expires, Cas, VbucketId}, _From, #state{socket=Socket} = State) ->
     Extras = <<16#deadbeef:32, Expires:32>>,
-    {VbucketId, _Server} = vbucket:map(Key),
-    Request = #req{opcode=?OP_SET, key=Key, body=Value, extras=Extras, vbucket=VbucketId},
+    Request = #req{opcode=?OP_SET, key=Key, body=Value, extras=Extras,
+		   vbucket=VbucketId, cas=Cas},
     Response = send_and_receive(Socket, Request),
     {reply, Response, State};
 handle_call({request, Request}, _From, #state{socket=Socket} = State) ->
