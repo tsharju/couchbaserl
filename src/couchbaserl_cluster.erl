@@ -13,9 +13,9 @@
 -export([code_change/3]).
 
 -define(BASE_URL, "http://~s:~w/pools/default/bucketsStreaming/~s").
--define(BOUNDARY, <<"\n\n\n\n">>).
 
--record(state, {host, port, bucket, http_conn, partial_data= <<"">>}).
+-record(state, {host, port, bucket, http_conn,
+		partial_boundary= <<"">>, partial_data= <<"">>}).
 
 %% API.
 
@@ -49,11 +49,13 @@ handle_cast(_Msg, State) ->
 handle_info({http, {_Ref, stream_start, _Headers}}, State) ->
     {noreply, State};
 handle_info({http, {_Ref, stream, Data}}, State) ->
-    case get_body(Data, State#state.partial_data) of
-	{incomplete, PartialData} ->
-	    {noreply, State#state{partial_data=PartialData}};
-	{complete, CompleteData} ->
-	    {noreply, State#state{partial_data= <<"">>}}
+    case get_body(Data, State#state.partial_boundary, State#state.partial_data) of
+	{partial, PartialBoundary, PartialData} ->
+	    {noreply, State#state{partial_boundary=PartialBoundary,
+				  partial_data=PartialData}};
+	{complete, CompleteData, PartialData} ->
+	    ok = vbucket:config_parse(binary_to_list(CompleteData)),
+	    {noreply, State#state{partial_data=PartialData}}
     end;
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -66,12 +68,23 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Internal API
 
-get_body(<<"">>, Acc) ->
-    {incomplete, Acc};
-get_body(?BOUNDARY, Acc) ->
-    {complete, Acc};
-get_body(<<Chunk:4/bytes, Rest/binary>>, Acc) ->
-    get_body(Rest, <<Acc/binary, Chunk/binary>>);
-get_body(Rest, Acc) ->
-    %% TODO: boundary might be split also :/
-    get_body(<<"">>, <<Acc/binary, Rest/binary>>).
+get_body(Data, <<"\n\n\n\n">>, Acc2) ->
+    {complete, Acc2, Data};
+get_body(<<"">>, <<"\n\n\n">>, Acc2) ->
+    {partial, <<"\n\n\n">>, Acc2};
+get_body(<<"">>, <<"\n\n">>, Acc2) ->
+    {partial, <<"\n\n">>, Acc2};
+get_body(<<"">>, <<"\n">>, Acc2) ->
+    {partial, <<"\n">>, Acc2};
+get_body(<<"">>, <<"">>, Acc2) ->
+    {partial, <<"">>, Acc2};
+get_body(<<Byte:1/bytes, Rest/binary>>, <<"\n">>, Acc2) when Byte =/= <<"\n">> ->
+    get_body(Rest, <<"">>, <<Acc2/binary, "\n", Byte/binary>>);
+get_body(<<Byte:1/bytes, Rest/binary>>, <<"\n\n">>, Acc2) when Byte =/= <<"\n">> ->
+    get_body(Rest, <<"">>, <<Acc2/binary, "\n\n", Byte/binary>>);
+get_body(<<Byte:1/bytes, Rest/binary>>, <<"\n\n\n">>, Acc2) when Byte =/= <<"\n">> ->
+    get_body(Rest, <<"">>, <<Acc2/binary, "\n\n\n", Byte/binary>>);
+get_body(<<Byte:1/bytes, Rest/binary>>, Acc1, Acc2) when Byte =:= <<"\n">> ->
+    get_body(Rest, <<Acc1/binary, Byte/binary>>, Acc2);
+get_body(<<Byte:1/bytes, Rest/binary>>, Acc1, Acc2) ->
+    get_body(Rest, Acc1, <<Acc2/binary, Byte/binary>>).
