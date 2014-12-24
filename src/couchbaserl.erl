@@ -27,6 +27,6 @@ set(Key, Value, Expires) ->
     set(Key, Value, Expires, 0).
 
 set(Key, Value, Expires, Cas) ->
-    {VbucketId, Server} = vbucket:map(key),
+    {VbucketId, Server} = vbucket:map(Key),
     Conn = couchbaserl_cluster:get_connection(Server),
     gen_server:call(Conn, {set, Key, Value, Expires, Cas, VbucketId}).
