@@ -64,7 +64,8 @@ handle_call({get, Key, VbucketId}, _From, #state{socket=Socket} = State) ->
     Request = #req{opcode=?OP_GET, key=Key, vbucket=VbucketId},
     Response = send_and_receive(Socket, Request),
     {reply, Response, State};
-handle_call({set, Key, Value, Expires, Cas, VbucketId}, _From, #state{socket=Socket} = State) ->
+handle_call({set, Key, Value, Expires, Cas, VbucketId}, _From,
+	    #state{socket=Socket} = State) ->
     Extras = <<0:32, Expires:32>>,
     Request = #req{opcode=?OP_SET, key=Key, body=Value, extras=Extras,
 		   vbucket=VbucketId, cas=Cas},
