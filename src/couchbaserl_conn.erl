@@ -45,14 +45,15 @@ handle_call({authenticate, BucketName, Password}, _From, #state{socket=Socket} =
 	    %% request challenge from server
 	    CResp = send_and_receive(Socket,
 				     #req{opcode=?OP_SASL_AUTHENTICATE, key="CRAM-MD5"}),
-	    AuthChallenge = CResp#rsp.body,
-	    AuthResponse = couchbaserl_auth:sasl_cram_md5(AuthChallenge, BucketName, Password),
+	    {auth_continue, AuthChallenge} = {CResp#rsp.status, CResp#rsp.body},
+	    AuthResponse = couchbaserl_auth:sasl_cram_md5(AuthChallenge, BucketName,
+							  Password),
 	    %% send the response
 	    Result = send_and_receive(Socket,
 				      #req{opcode=?OP_SASL_STEP,
 					   key="CRAM-MD5", body=AuthResponse}),
 	    case Result#rsp.status of
-		0 ->
+		success ->
 		    {reply, ok, State};
 		_ ->
 		    {reply, {error, binary_to_list(Result#rsp.body)}, State}
@@ -62,14 +63,14 @@ handle_call({authenticate, BucketName, Password}, _From, #state{socket=Socket} =
     end;
 handle_call({get, Key, VbucketId}, _From, #state{socket=Socket} = State) ->
     Request = #req{opcode=?OP_GET, key=Key, vbucket=VbucketId},
-    Response = send_and_receive(Socket, Request),
+    Response = respond_with_cas_and_body(send_and_receive(Socket, Request)),
     {reply, Response, State};
 handle_call({set, Key, Value, Expires, Cas, VbucketId}, _From,
 	    #state{socket=Socket} = State) ->
     Extras = <<0:32, Expires:32>>,
     Request = #req{opcode=?OP_SET, key=Key, body=Value, extras=Extras,
 		   vbucket=VbucketId, cas=Cas},
-    Response = send_and_receive(Socket, Request),
+    Response = respond_with_cas(send_and_receive(Socket, Request)),
     {reply, Response, State};
 handle_call({request, Request}, _From, #state{socket=Socket} = State) ->
     send_request(Socket, Request),
@@ -153,7 +154,7 @@ decode_response_header(<<16#81:8, Opcode:8, KeyLen:16, ExtrasLen:8, DataType:8,
        key_length=KeyLen,
        extras_length=ExtrasLen,
        data_type=DataType,
-       status=Status,
+       status=get_status(Status),
        total_body_length=BodyLen,
        cas=Cas
       };
@@ -165,3 +166,58 @@ decode_response_body(Response, Bin) ->
     ExtrasLen = Response#rsp.extras_length,
     <<Key:KeyLen/bytes, Extras:ExtrasLen/bytes, Body/binary>> = Bin,
     Response#rsp{key=Key, extras=Extras, body=Body}.
+
+get_status(16#00) ->
+    success;
+get_status(16#01) ->
+    key_enoent;
+get_status(16#02) ->
+    key_eexists;
+get_status(16#03) ->
+    e2big;
+get_status(16#04) ->
+    einval;
+get_status(16#05) ->
+    not_stored;
+get_status(16#06) ->
+    delta_badval;
+get_status(16#07) ->
+    not_my_vbucket;
+get_status(16#20) ->
+    auth_error;
+get_status(16#21) ->
+    auth_continue;
+get_status(16#22) ->
+    erange;
+get_status(16#23) ->
+    rollback;
+get_status(16#81) ->
+    unknown_command;
+get_status(16#82) ->
+    enomem;
+get_status(16#83) ->
+    not_supported;
+get_status(16#84) ->
+    einternal;
+get_status(16#85) ->
+    ebusy;
+get_status(16#86) ->
+    etmpfail;
+get_status(_) ->
+    unknown.
+
+respond_with_cas(Response) ->
+    case Response of
+    	Rsp when Rsp#rsp.status =:= success ->
+	    {ok, Rsp#rsp.cas};
+	Rsp ->
+	    {error, {Rsp#rsp.status, binary_to_list(Rsp#rsp.body)}}
+    end.
+
+respond_with_cas_and_body(Response) ->
+    case Response of
+    	Rsp when Rsp#rsp.status =:= success ->
+	    {ok, Rsp#rsp.cas, Rsp#rsp.body};
+	Rsp ->
+	    {error, {Rsp#rsp.status, binary_to_list(Rsp#rsp.body)}}
+    end.

@@ -39,3 +39,4 @@ set(Key, Value, Expires, Cas) ->
     {VbucketId, Server} = vbucket:map(Key),
     Conn = couchbaserl_cluster:get_connection(Server),
     gen_server:call(Conn, {set, Key, Value, Expires, Cas, VbucketId}).
+
