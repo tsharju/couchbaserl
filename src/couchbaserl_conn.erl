@@ -72,10 +72,6 @@ handle_call({set, Key, Value, Expires, Cas, VbucketId}, _From,
 		   vbucket=VbucketId, cas=Cas},
     Response = respond_with_cas(send_and_receive(Socket, Request)),
     {reply, Response, State};
-handle_call({request, Request}, _From, #state{socket=Socket} = State) ->
-    send_request(Socket, Request),
-    Response = receive_response(Socket),
-    {reply, {ok, Response}, State};
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
 
