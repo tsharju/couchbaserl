@@ -61,14 +61,27 @@ handle_call({authenticate, BucketName, Password}, _From, #state{socket=Socket} =
 	false ->
 	    {reply, {error, not_implemented}, State}
     end;
-handle_call({get, Key, VbucketId}, _From, #state{socket=Socket} = State) ->
+handle_call({?OP_GET, Key, VbucketId, []}, _From, #state{socket=Socket} = State) ->
     Request = #req{opcode=?OP_GET, key=Key, vbucket=VbucketId},
     Response = respond_with_cas_and_body(send_and_receive(Socket, Request)),
     {reply, Response, State};
-handle_call({set, Key, Value, Expires, Cas, VbucketId}, _From,
-	    #state{socket=Socket} = State) ->
+handle_call({?OP_DELETE, Key, VbucketId, Quiet}, _From, #state{socket=Socket} = State) ->
+    Request = #req{opcode=?OP_DELETE, key=Key, vbucket=VbucketId},
+    Response = send_and_receive(Socket, Request),
+    case {Quiet, Response} of
+	{true, _} ->
+	    {reply, ok, State};
+	{_, R} when R#rsp.status =:= success ->
+	    {reply, ok, State};
+	{_, R} ->
+	    {reply, {error, {R#rsp.status, binary_to_list(R#rsp.body)}}, State}
+    end;
+handle_call({Opcode, Key, Value, Expires, Cas, VbucketId}, _From,
+	    #state{socket=Socket} = State) when Opcode =:= ?OP_SET;
+						Opcode =:= ?OP_ADD;
+						Opcode =:= ?OP_REPLACE ->
     Extras = <<0:32, Expires:32>>,
-    Request = #req{opcode=?OP_SET, key=Key, body=Value, extras=Extras,
+    Request = #req{opcode=Opcode, key=Key, body=Value, extras=Extras,
 		   vbucket=VbucketId, cas=Cas},
     Response = respond_with_cas(send_and_receive(Socket, Request)),
     {reply, Response, State};
